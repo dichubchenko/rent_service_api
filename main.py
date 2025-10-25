@@ -119,3 +119,16 @@ async def debug_orders():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+@app.post("/api/debug/reset")
+async def reset_database():
+    """
+    Сброс всей базы данных к начальному состоянию.
+    Только для отладки!
+    """
+    import services
+    import importlib
+    importlib.reload(services)  # Перезагружаем модуль services
+    
+    print("🔄 База данных сброшена к начальному состоянию")
+    return {"message": "Database reset successfully", "orders_count": len(services.orders_db)}
