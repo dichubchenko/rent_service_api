@@ -60,7 +60,8 @@ async def create_order(order_request: OrderCreateRequest):
         await services.send_sms_cancellation(
             order_request.client_id,
             0,  # order_id еще не создан
-            CancelReason.ITEM_NOT_AVAILABLE
+            CancelReason.ITEM_ALREADY_BOOKED,
+            str(e)
         )
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -73,7 +74,8 @@ async def create_order(order_request: OrderCreateRequest):
         await services.send_sms_cancellation(
             order_request.client_id,
             0,  # order_id еще не создан  
-            CancelReason.ITEM_NOT_IN_LOCATION
+            CancelReason.ITEM_WRONG_LOCATION,
+            str(e)
         )
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -132,3 +134,66 @@ async def reset_database():
     
     print("🔄 База данных сброшена к начальному состоянию")
     return {"message": "Database reset successfully", "orders_count": len(services.orders_db)}
+
+
+
+# Добавляем в main.py после существующих эндпоинтов
+
+@app.patch("/api/orders/{order_id}",
+          response_model=OrderUpdateResponse,
+          summary="Отменить заказ",
+          tags=["Orders"])
+async def cancel_order(order_id: int, cancel_request: OrderCancelRequest):
+    """
+    Отменяет заказ по указанной причине.
+    
+    Внутренняя логика:
+    - Обновляет статус заказа на 'cancelled'
+    - Освобождает забронированную вещь
+    - Отправляет асинхронное сообщение в Kafka для сервиса SMS
+    """
+    try:
+        print(f"🔔 Получен запрос на отмену заказа {order_id}: {cancel_request}")
+        
+        # 1. Отменяем заказ в БД и освобождаем вещь
+        cancelled_order = await services.cancel_order_in_db(
+            order_id, 
+            cancel_request.cancel_reason,
+            cancel_request.details
+        )
+        
+        # 2. Подготовка и отправка сообщения в Kafka для сервиса SMS
+        kafka_message = services.OrderCancellationMessage(
+            order_id=cancelled_order.id,
+            client_id=cancelled_order.client_id,
+            item_id=cancelled_order.item_id,
+            pickup_point_id=cancelled_order.pickup_point_id,
+            cancel_reason=cancel_request.cancel_reason,
+            cancel_details=cancel_request.details,
+            timestamp=datetime.now()
+        )
+        
+        # Асинхронная отправка в Kafka (fire and forget)
+        asyncio.create_task(services.send_cancellation_to_kafka(kafka_message))
+        
+        print(f"✅ Заказ {order_id} успешно отменен")
+        
+        return OrderUpdateResponse(
+            order_id=cancelled_order.id,
+            status=cancelled_order.status,
+            cancel_reason=cancel_request.cancel_reason,
+            message=f"Заказ отменен по причине: {cancel_request.cancel_reason}"
+        )
+
+    except services.DatabaseError as e:
+        print(f"❌ Ошибка при отмене заказа: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+    except Exception as e:
+        print(f"💥 Непредвиденная ошибка при отмене заказа: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error during order cancellation."
+        )
