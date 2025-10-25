@@ -1,8 +1,9 @@
 from fastapi import FastAPI, HTTPException, status
-from models import OrderCreateRequest, OrderResponse, RentalOrderMessage, CancelReason
+from models import OrderStatus, OrderCreateRequest, OrderResponse, RentalOrderMessage, CancelReason
 import services
 from datetime import datetime
 import asyncio
+from typing import List
 
 app = FastAPI(
     title="Rental Service API",
@@ -21,60 +22,70 @@ async def create_order(order_request: OrderCreateRequest):
     """
     Создает новый заказ на аренду вещи.
     
-    Внутренняя логика:
-    - Проверяет возможность выдачи вещи (наличие в постомате, отсутствие брони)
-    - Если вещь доступна: создает заказ в БД и отправляет сообщение в Kafka
-    - Если вещь недоступна: отправляет SMS об отмене и возвращает ошибку
+    Логика:
+    1. Создает заказ со статусом NEW
+    2. Проверяет доступность вещи
+    3. Если доступна - обновляет статус на AWAITING_PAYMENT и отправляет в Kafka
+    4. Если недоступна - отменяет заказ и отправляет SMS
     """
     try:
         print(f"🔔 Получен запрос на создание заказа: {order_request}")
         
-        # 1. Проверка возможности выдачи вещи
+        # 1. Создание заказа в БД со статусом NEW
+        new_order = await services.create_order_in_db(order_request)
+        print(f"✅ Заказ {new_order.id} создан со статусом NEW")
+        
+        # 2. Проверка возможности выдачи вещи
         await services.check_item_availability(
             order_request.item_id,
             order_request.pickup_point_id
         )
+        print(f"✅ Проверка доступности пройдена для заказа {new_order.id}")
         
-        # 2. Создание заказа в БД и бронирование вещи
-        new_order = await services.create_order_in_db(order_request)
+        # 3. Бронируем вещь
+        await services.reserve_item(
+            order_request.item_id,
+            new_order.id,
+            order_request.rental_duration_hours
+        )
         
-        # 3. Подготовка и отправка сообщения в Kafka для сервиса документов
+        # 4. Обновляем статус заказа на AWAITING_PAYMENT
+        updated_order = await services.update_order_status(new_order.id, OrderStatus.AWAITING_PAYMENT)
+        print(f"✅ Статус заказа {new_order.id} обновлен на AWAITING_PAYMENT")
+        
+        # 5. Подготовка и отправка сообщения в Kafka для сервиса документов
         kafka_message = RentalOrderMessage(
-            order_id=new_order.id,
-            client_id=new_order.client_id,
-            item_id=new_order.item_id,
-            pickup_point_id=new_order.pickup_point_id,
-            rental_duration_hours=new_order.rental_duration_hours,
+            order_id=updated_order.id,
+            client_id=updated_order.client_id,
+            item_id=updated_order.item_id,
+            pickup_point_id=updated_order.pickup_point_id,
+            rental_duration_hours=updated_order.rental_duration_hours,
+            status=updated_order.status,  # Отправляем текущий статус
             timestamp=datetime.now()
         )
         
         # Асинхронная отправка в Kafka (fire and forget)
         asyncio.create_task(services.send_to_kafka(kafka_message))
         
-        print(f"✅ Заказ {new_order.id} успешно создан")
-        return new_order
+        print(f"✅ Заказ {updated_order.id} успешно обработан")
+        return updated_order
 
-    except services.ItemNotAvailableError as e:
-        print(f"❌ Вещь недоступна: {e}")
-        # Синхронный запрос в сервис SMS на отмену
-        await services.send_sms_cancellation(
+    except (services.ItemNotAvailableError, services.ItemNotInLocationError) as e:
+        print(f"❌ Ошибка доступности: {e}")
+        
+        # Отмена во время создания заказа
+        cancel_reason = CancelReason.ITEM_NOT_AVAILABLE if isinstance(e, services.ItemNotAvailableError) else CancelReason.ITEM_NOT_IN_LOCATION
+        
+        await services.cancel_order_during_creation(
             order_request.client_id,
-            0,  # order_id еще не создан
-            CancelReason.ITEM_NOT_AVAILABLE
-        )
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=str(e)
+            cancel_reason,
+            str(e)
         )
         
-    except services.ItemNotInLocationError as e:
-        print(f"❌ Вещь не в указанном месте: {e}")
-        # Синхронный запрос в сервис SMS на отмену
-        await services.send_sms_cancellation(
-            order_request.client_id,
-            0,  # order_id еще не создан  
-            CancelReason.ITEM_NOT_IN_LOCATION
-        )
+        # Если заказ уже создан, обновляем его статус
+        if 'new_order' in locals():
+            await services.update_order_status(new_order.id, OrderStatus.CANCELLED)
+        
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(e)
