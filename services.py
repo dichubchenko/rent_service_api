@@ -37,7 +37,7 @@ items_db = {
         "hourly_price": 60, 
         "is_available": False,  # Уже забронирована
         "current_pickup_point_id": 789,
-        "reserved_until": datetime(2024, 1, 20, 18, 0, 0)
+        "reserved_until": datetime(2025, 12, 20, 18, 0, 0)
     },
     458: {
         "id": 458, 
