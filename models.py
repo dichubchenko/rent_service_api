@@ -8,16 +8,21 @@ import uuid
 
 class OrderStatus(str, Enum):
     """Статусы заказа."""
-    PENDING = "pending"
-    CONFIRMED = "confirmed"
-    CANCELLED = "cancelled"
-    COMPLETED = "completed"
+    NEW = "new"  # Заказ создан, проверки не проводились
+    AWAITING_PAYMENT = "awaiting_payment"  # Проверки пройдены, ожидаем оплату
+    AWAITING_RECEIPT = "awaiting_receipt"  # Оплата прошла, ожидаем выдачу
+    AWAITING_RETURN = "awaiting_return"  # Вещь выдана, ожидаем возврат
+    CANCELLED = "cancelled"  # Заказ отменен
+    RETURNED = "returned"  # Заказ завершен (вещь возвращена)
 
 class CancelReason(str, Enum):
     """Причины отмены заказа."""
+    PAYMENT_FAILED = "payment_failed"
     ITEM_NOT_AVAILABLE = "item_not_available"
     ITEM_NOT_IN_LOCATION = "item_not_in_location"
+    PICKUP_DEADLINE_EXPIRED = "pickup_deadline_expired"
     CLIENT_CANCELLED = "client_cancelled"
+    OTHER = "other"
 
 class OrderCreateRequest(BaseModel):
     """Тело запроса на создание заказа."""
@@ -45,7 +50,19 @@ class OrderResponse(BaseModel):
     pickup_point_id: int
     rental_duration_hours: int
     status: OrderStatus
+    cancel_reason: Optional[CancelReason] = None
+    cancel_details: Optional[str] = None
     created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+class OrderUpdateResponse(BaseModel):
+    """Ответ при обновлении заказа."""
+    order_id: int
+    status: OrderStatus
+    cancel_reason: Optional[CancelReason] = None
+    message: str
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -63,6 +80,7 @@ class RentalOrderMessage(BaseModel):
     item_id: int
     pickup_point_id: int
     rental_duration_hours: int
+    status: OrderStatus
     timestamp: datetime
 
 class SMSNotification(BaseModel):
