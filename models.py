@@ -45,25 +45,7 @@ class OrderResponse(BaseModel):
     pickup_point_id: int
     rental_duration_hours: int
     status: OrderStatus
-    cancel_reason: Optional[CancelReason] = None  # Добавляем поле причины отмены
-    cancel_details: Optional[str] = None  # Добавляем поле деталей отмены
     created_at: datetime
-    updated_at: datetime  # Добавляем поле времени обновления
-
-    model_config = ConfigDict(from_attributes=True)
-
-class OrderDebugResponse(BaseModel):
-    """Модель для отладочного вывода заказов."""
-    id: int
-    client_id: int
-    item_id: int
-    pickup_point_id: int
-    rental_duration_hours: int
-    status: OrderStatus
-    cancel_reason: Optional[CancelReason] = None
-    cancel_details: Optional[str] = None
-    created_at: datetime
-    updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -89,46 +71,3 @@ class SMSNotification(BaseModel):
     order_id: int
     message: str
     phone_number: str
-
-class CancelReason(str, Enum):
-    """Причины отмены заказа."""
-    PAYMENT_FAILED = "payment_failed"
-    ITEM_ALREADY_BOOKED = "item_already_booked"
-    ITEM_WRONG_LOCATION = "item_wrong_location"
-    PICKUP_DEADLINE_EXPIRED = "pickup_deadline_expired"
-    CLIENT_CANCELLED = "client_cancelled"
-    OTHER = "other"
-
-class OrderCancelRequest(BaseModel):
-    """Тело запроса на отмену заказа."""
-    cancel_reason: CancelReason
-    details: Optional[str] = Field(None, description="Дополнительная информация об отмене")
-
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "cancel_reason": "payment_failed",
-                "details": "Недостаточно средств на карте"
-            }
-        }
-    )
-
-class OrderUpdateResponse(BaseModel):
-    """Ответ при обновлении заказа."""
-    order_id: int
-    status: OrderStatus
-    cancel_reason: Optional[CancelReason] = None
-    message: str
-
-    model_config = ConfigDict(from_attributes=True)
-
-# Модель для Kafka сообщения об отмене
-class OrderCancellationMessage(BaseModel):
-    """Сообщение для Kafka об отмене заказа."""
-    order_id: int
-    client_id: int
-    item_id: int
-    pickup_point_id: int
-    cancel_reason: CancelReason
-    cancel_details: Optional[str] = None
-    timestamp: datetime
