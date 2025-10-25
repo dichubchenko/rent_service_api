@@ -45,7 +45,25 @@ class OrderResponse(BaseModel):
     pickup_point_id: int
     rental_duration_hours: int
     status: OrderStatus
+    cancel_reason: Optional[CancelReason] = None  # Добавляем поле причины отмены
+    cancel_details: Optional[str] = None  # Добавляем поле деталей отмены
     created_at: datetime
+    updated_at: datetime  # Добавляем поле времени обновления
+
+    model_config = ConfigDict(from_attributes=True)
+
+class OrderDebugResponse(BaseModel):
+    """Модель для отладочного вывода заказов."""
+    id: int
+    client_id: int
+    item_id: int
+    pickup_point_id: int
+    rental_duration_hours: int
+    status: OrderStatus
+    cancel_reason: Optional[CancelReason] = None
+    cancel_details: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
