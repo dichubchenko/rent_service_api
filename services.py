@@ -146,12 +146,16 @@ async def create_order_in_db(order_data: OrderCreateRequest) -> OrderResponse:
     
     # Генерируем ID заказа
     order_id = order_id_generator.generate_id()
+    now = datetime.now()
     
     # Создаем заказ
     new_order = OrderResponse(
         id=order_id,
         status=OrderStatus.PENDING,
-        created_at=datetime.now(),
+        cancel_reason=None,
+        cancel_details=None,
+        created_at=now,
+        updated_at=now,
         **order_data.model_dump()
     )
     
@@ -160,7 +164,7 @@ async def create_order_in_db(order_data: OrderCreateRequest) -> OrderResponse:
     
     # Резервируем вещь
     items_db[order_data.item_id]["is_available"] = False
-    items_db[order_data.item_id]["reserved_until"] = datetime.now() + timedelta(
+    items_db[order_data.item_id]["reserved_until"] = now + timedelta(
         hours=order_data.rental_duration_hours + 1  # +1 час на оформление
     )
     
@@ -206,8 +210,11 @@ async def cancel_order_in_db(order_id: int, cancel_reason: CancelReason, cancel_
     if order_to_cancel.status == OrderStatus.CANCELLED:
         raise DatabaseError(f"Заказ {order_id} уже отменен")
     
-    # Обновляем статус заказа
+    # Обновляем статус заказа и причину отмены
     order_to_cancel.status = OrderStatus.CANCELLED
+    order_to_cancel.cancel_reason = cancel_reason
+    order_to_cancel.cancel_details = cancel_details
+    order_to_cancel.updated_at = datetime.now()
     
     # Освобождаем вещь
     if order_to_cancel.item_id in items_db:
@@ -217,6 +224,21 @@ async def cancel_order_in_db(order_id: int, cancel_reason: CancelReason, cancel_
     
     print(f"[Отмена заказа] Заказ {order_id} отменен по причине: {cancel_reason}")
     return order_to_cancel
+
+async def cancel_order_during_creation(client_id: int, item_id: int, pickup_point_id: int, 
+                                     cancel_reason: CancelReason, error_details: str) -> None:
+    """
+    Отменяет заказ во время создания (когда заказ еще не создан в БД, но нужно отправить SMS).
+    """
+    print(f"[Авто-отмена] Отмена во время создания заказа по причине: {cancel_reason}")
+    
+    # В этом случае заказ еще не создан в БД, но мы отправляем SMS
+    await send_sms_cancellation(
+        client_id,
+        0,  # order_id еще не создан
+        cancel_reason,
+        error_details
+    )
 
 async def send_cancellation_to_kafka(message: OrderCancellationMessage):
     """
