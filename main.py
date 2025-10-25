@@ -1,59 +1,120 @@
 from fastapi import FastAPI, HTTPException, status
-from pydantic import BaseModel
-from enum import Enum
+from models import OrderCreateRequest, OrderResponse, RentalOrderMessage, CancelReason
+import services
 from datetime import datetime
+import asyncio
 
-app = FastAPI(title="Rental API", version="1.0.0")
+app = FastAPI(
+    title="Rental Service API",
+    description="API для сервиса краткосрочной аренды вещей",
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc"
+)
 
-class OrderStatus(str, Enum):
-    PENDING = "pending"
-
-class OrderCreateRequest(BaseModel):
-    client_id: int
-    item_id: int
-    pickup_point_id: int
-    rental_duration_hours: int
-
-class OrderResponse(BaseModel):
-    id: int
-    client_id: int
-    item_id: int
-    pickup_point_id: int
-    rental_duration_hours: int
-    status: OrderStatus
-    created_at: datetime
-
-# In-memory storage for demo
-orders_db = []
-order_counter = 1
-
-@app.post("/api/orders", response_model=OrderResponse, status_code=201)
+@app.post("/api/orders",
+          response_model=OrderResponse,
+          status_code=status.HTTP_201_CREATED,
+          summary="Создать заказ на аренду",
+          tags=["Orders"])
 async def create_order(order_request: OrderCreateRequest):
-    global order_counter
+    """
+    Создает новый заказ на аренду вещи.
     
-    # Простая заглушка бизнес-логики
-    new_order = OrderResponse(
-        id=order_counter,
-        status=OrderStatus.PENDING,
-        created_at=datetime.now(),
-        **order_request.model_dump()
-    )
-    
-    orders_db.append(new_order)
-    order_counter += 1
-    
-    return new_order
+    Внутренняя логика:
+    - Проверяет возможность выдачи вещи (наличие в постомате, отсутствие брони)
+    - Если вещь доступна: создает заказ в БД и отправляет сообщение в Kafka
+    - Если вещь недоступна: отправляет SMS об отмене и возвращает ошибку
+    """
+    try:
+        print(f"🔔 Получен запрос на создание заказа: {order_request}")
+        
+        # 1. Проверка возможности выдачи вещи
+        await services.check_item_availability(
+            order_request.item_id,
+            order_request.pickup_point_id
+        )
+        
+        # 2. Создание заказа в БД и бронирование вещи
+        new_order = await services.create_order_in_db(order_request)
+        
+        # 3. Подготовка и отправка сообщения в Kafka для сервиса документов
+        kafka_message = RentalOrderMessage(
+            order_id=new_order.id,
+            client_id=new_order.client_id,
+            item_id=new_order.item_id,
+            pickup_point_id=new_order.pickup_point_id,
+            rental_duration_hours=new_order.rental_duration_hours,
+            timestamp=datetime.now()
+        )
+        
+        # Асинхронная отправка в Kafka (fire and forget)
+        asyncio.create_task(services.send_to_kafka(kafka_message))
+        
+        print(f"✅ Заказ {new_order.id} успешно создан")
+        return new_order
 
-@app.get("/api/orders/{order_id}")
-async def get_order(order_id: int):
-    for order in orders_db:
-        if order.id == order_id:
-            return order
-    raise HTTPException(status_code=404, detail="Order not found")
+    except services.ItemNotAvailableError as e:
+        print(f"❌ Вещь недоступна: {e}")
+        # Синхронный запрос в сервис SMS на отмену
+        await services.send_sms_cancellation(
+            order_request.client_id,
+            0,  # order_id еще не создан
+            CancelReason.ITEM_NOT_AVAILABLE
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e)
+        )
+        
+    except services.ItemNotInLocationError as e:
+        print(f"❌ Вещь не в указанном месте: {e}")
+        # Синхронный запрос в сервис SMS на отмену
+        await services.send_sms_cancellation(
+            order_request.client_id,
+            0,  # order_id еще не создан  
+            CancelReason.ITEM_NOT_IN_LOCATION
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e)
+        )
+        
+    except services.ClientNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+    except services.PickupPointNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail=str(e)
+        )
+    except Exception as e:
+        print(f"💥 Непредвиденная ошибка: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error."
+        )
 
 @app.get("/")
 async def root():
-    return {"message": "Rental API is running!", "docs": "/docs"}
+    return {
+        "message": "Rental Service API", 
+        "version": "1.0.0",
+        "docs": "/docs",
+        "status": "running"
+    }
+
+@app.get("/api/debug/items")
+async def debug_items():
+    """Эндпоинт для отладки - показывает текущее состояние вещей"""
+    return {"items": services.items_db}
+
+@app.get("/api/debug/orders")
+async def debug_orders():
+    """Эндпоинт для отладки - показывает созданные заказы"""
+    return {"orders": services.orders_db}
 
 if __name__ == "__main__":
     import uvicorn
