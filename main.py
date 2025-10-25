@@ -113,10 +113,10 @@ async def debug_items():
     """Эндпоинт для отладки - показывает текущее состояние вещей"""
     return {"items": services.items_db}
 
-@app.get("/api/debug/orders")
+@app.get("/api/debug/orders", response_model=List[OrderDebugResponse])
 async def debug_orders():
-    """Эндпоинт для отладки - показывает созданные заказы"""
-    return {"orders": services.orders_db}
+    """Эндпоинт для отладки - показывает созданные заказы с полной информацией"""
+    return services.orders_db
 
 if __name__ == "__main__":
     import uvicorn
@@ -137,63 +137,88 @@ async def reset_database():
 
 
 
-# Добавляем в main.py после существующих эндпоинтов
 
-@app.patch("/api/orders/{order_id}",
-          response_model=OrderUpdateResponse,
-          summary="Отменить заказ",
+
+@app.post("/api/orders",
+          response_model=OrderResponse,
+          status_code=status.HTTP_201_CREATED,
+          summary="Создать заказ на аренду",
           tags=["Orders"])
-async def cancel_order(order_id: int, cancel_request: OrderCancelRequest):
+async def create_order(order_request: OrderCreateRequest):
     """
-    Отменяет заказ по указанной причине.
-    
-    Внутренняя логика:
-    - Обновляет статус заказа на 'cancelled'
-    - Освобождает забронированную вещь
-    - Отправляет асинхронное сообщение в Kafka для сервиса SMS
+    Создает новый заказ на аренду вещи.
     """
     try:
-        print(f"🔔 Получен запрос на отмену заказа {order_id}: {cancel_request}")
+        print(f"🔔 Получен запрос на создание заказа: {order_request}")
         
-        # 1. Отменяем заказ в БД и освобождаем вещь
-        cancelled_order = await services.cancel_order_in_db(
-            order_id, 
-            cancel_request.cancel_reason,
-            cancel_request.details
+        # 1. Проверка возможности выдачи вещи
+        await services.check_item_availability(
+            order_request.item_id,
+            order_request.pickup_point_id
         )
         
-        # 2. Подготовка и отправка сообщения в Kafka для сервиса SMS
-        kafka_message = services.OrderCancellationMessage(
-            order_id=cancelled_order.id,
-            client_id=cancelled_order.client_id,
-            item_id=cancelled_order.item_id,
-            pickup_point_id=cancelled_order.pickup_point_id,
-            cancel_reason=cancel_request.cancel_reason,
-            cancel_details=cancel_request.details,
+        # 2. Создание заказа в БД и бронирование вещи
+        new_order = await services.create_order_in_db(order_request)
+        
+        # 3. Подготовка и отправка сообщения в Kafka для сервиса документов
+        kafka_message = services.RentalOrderMessage(
+            order_id=new_order.id,
+            client_id=new_order.client_id,
+            item_id=new_order.item_id,
+            pickup_point_id=new_order.pickup_point_id,
+            rental_duration_hours=new_order.rental_duration_hours,
             timestamp=datetime.now()
         )
         
         # Асинхронная отправка в Kafka (fire and forget)
-        asyncio.create_task(services.send_cancellation_to_kafka(kafka_message))
+        asyncio.create_task(services.send_to_kafka(kafka_message))
         
-        print(f"✅ Заказ {order_id} успешно отменен")
-        
-        return OrderUpdateResponse(
-            order_id=cancelled_order.id,
-            status=cancelled_order.status,
-            cancel_reason=cancel_request.cancel_reason,
-            message=f"Заказ отменен по причине: {cancel_request.cancel_reason}"
-        )
+        print(f"✅ Заказ {new_order.id} успешно создан")
+        return new_order
 
-    except services.DatabaseError as e:
-        print(f"❌ Ошибка при отмене заказа: {e}")
+    except services.ItemNotAvailableError as e:
+        print(f"❌ Вещь недоступна: {e}")
+        # Отмена во время создания заказа
+        await services.cancel_order_during_creation(
+            order_request.client_id,
+            order_request.item_id,
+            order_request.pickup_point_id,
+            CancelReason.ITEM_ALREADY_BOOKED,
+            str(e)
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e)
+        )
+        
+    except services.ItemNotInLocationError as e:
+        print(f"❌ Вещь не в указанном месте: {e}")
+        # Отмена во время создания заказа
+        await services.cancel_order_during_creation(
+            order_request.client_id,
+            order_request.item_id,
+            order_request.pickup_point_id,
+            CancelReason.ITEM_WRONG_LOCATION,
+            str(e)
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e)
+        )
+        
+    except services.ClientNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e)
         )
+    except services.PickupPointNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail=str(e)
+        )
     except Exception as e:
-        print(f"💥 Непредвиденная ошибка при отмене заказа: {e}")
+        print(f"💥 Непредвиденная ошибка: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal server error during order cancellation."
+            detail="Internal server error."
         )
