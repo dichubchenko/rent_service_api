@@ -1,0 +1,17 @@
+[tool.poetry]
+name = "rent_service_api"
+version = "0.1.0"
+description = "API for rental service"
+authors = ["Dmitriy Chubchenko"]
+
+[tool.poetry.dependencies]
+python = "^3.8"
+fastapi = "^0.104.1"
+uvicorn = {extras = ["standard"], version = "^0.24.0"}
+pydantic = "^2.5.0"
+
+[tool.poetry.group.dev.dependencies]
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
