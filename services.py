@@ -186,7 +186,57 @@ async def send_to_kafka(message: RentalOrderMessage):
     await asyncio.sleep(0.5)
     print(f"✅ [KAFKA] Сообщение для заказа {message.order_id} успешно отправлено\n")
 
-async def send_sms_cancellation(client_id: int, order_id: int, reason: CancelReason):
+async def cancel_order_in_db(order_id: int, cancel_reason: CancelReason, cancel_details: Optional[str] = None) -> OrderResponse:
+    """
+    Отменяет заказ в БД и освобождает вещь.
+    """
+    print(f"[Отмена заказа] Ищем заказ {order_id} для отмены по причине: {cancel_reason}")
+    
+    # Ищем заказ
+    order_to_cancel = None
+    for order in orders_db:
+        if order.id == order_id:
+            order_to_cancel = order
+            break
+    
+    if not order_to_cancel:
+        raise DatabaseError(f"Заказ с ID {order_id} не найден")
+    
+    # Проверяем, что заказ еще не отменен
+    if order_to_cancel.status == OrderStatus.CANCELLED:
+        raise DatabaseError(f"Заказ {order_id} уже отменен")
+    
+    # Обновляем статус заказа
+    order_to_cancel.status = OrderStatus.CANCELLED
+    
+    # Освобождаем вещь
+    if order_to_cancel.item_id in items_db:
+        items_db[order_to_cancel.item_id]["is_available"] = True
+        items_db[order_to_cancel.item_id]["reserved_until"] = None
+        print(f"[Отмена заказа] Вещь {order_to_cancel.item_id} освобождена")
+    
+    print(f"[Отмена заказа] Заказ {order_id} отменен по причине: {cancel_reason}")
+    return order_to_cancel
+
+async def send_cancellation_to_kafka(message: OrderCancellationMessage):
+    """
+    Заглушка для отправки сообщения об отмене в Kafka.
+    """
+    print(f"\n🎫 [KAFKA CANCELLATION] Отправка сообщения об отмене в топик 'order-cancellations':")
+    print(f"   Order ID: {message.order_id}")
+    print(f"   Client ID: {message.client_id}") 
+    print(f"   Item ID: {message.item_id}")
+    print(f"   Pickup Point: {message.pickup_point_id}")
+    print(f"   Cancel Reason: {message.cancel_reason}")
+    print(f"   Cancel Details: {message.cancel_details}")
+    print(f"   Timestamp: {message.timestamp}")
+    
+    # Имитация отправки в Kafka
+    await asyncio.sleep(0.5)
+    print(f"✅ [KAFKA CANCELLATION] Сообщение об отмене заказа {message.order_id} успешно отправлено\n")
+
+# Также обновим функцию send_sms_cancellation для поддержки разных причин
+async def send_sms_cancellation(client_id: int, order_id: int, reason: CancelReason, details: Optional[str] = None):
     """
     Заглушка для синхронного запроса в сервис отправки SMS.
     """
@@ -194,6 +244,7 @@ async def send_sms_cancellation(client_id: int, order_id: int, reason: CancelRea
     print(f"   Client ID: {client_id}")
     print(f"   Order ID: {order_id}")
     print(f"   Reason: {reason}")
+    print(f"   Details: {details}")
     
     # Получаем данные клиента для SMS
     client = clients_db.get(client_id)
@@ -201,12 +252,18 @@ async def send_sms_cancellation(client_id: int, order_id: int, reason: CancelRea
         phone_number = client["phone"]
         
         # Формируем сообщение в зависимости от причины
-        if reason == CancelReason.ITEM_NOT_AVAILABLE:
-            message = f"Заказ {order_id} отменен. Вещь недоступна для бронирования."
-        elif reason == CancelReason.ITEM_NOT_IN_LOCATION:
-            message = f"Заказ {order_id} отменен. Вещь отсутствует в выбранном месте."
-        else:
-            message = f"Заказ {order_id} отменен."
+        reason_messages = {
+            CancelReason.PAYMENT_FAILED: "неуспешного списания средств",
+            CancelReason.ITEM_ALREADY_BOOKED: "невозможности выдать вещь (уже забронирована)",
+            CancelReason.ITEM_WRONG_LOCATION: "невозможности выдать вещь (не в этом постомате)", 
+            CancelReason.PICKUP_DEADLINE_EXPIRED: "просроченного дедлайна по выдаче вещи",
+            CancelReason.CLIENT_CANCELLED: "отмены клиентом",
+            CancelReason.OTHER: "технических причин"
+        }
+        
+        message = f"Заказ {order_id} отменен по причине: {reason_messages.get(reason, 'технических причин')}"
+        if details:
+            message += f". {details}"
         
         print(f"   To: {phone_number}")
         print(f"   Message: {message}")
@@ -216,3 +273,5 @@ async def send_sms_cancellation(client_id: int, order_id: int, reason: CancelRea
         print(f"✅ [SMS SERVICE] SMS для заказа {order_id} отправлено\n")
     else:
         print(f"⚠️  [SMS SERVICE] Клиент {client_id} не найден, SMS не отправлено\n")
+
+
