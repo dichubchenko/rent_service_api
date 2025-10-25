@@ -1,5 +1,13 @@
 from fastapi import FastAPI, HTTPException, status
-from models import OrderCreateRequest, OrderResponse, RentalOrderMessage, CancelReason
+from models import (
+    OrderCreateRequest, 
+    OrderResponse, 
+    RentalOrderMessage, 
+    CancelReason,
+    OrderCancelRequest,
+    OrderUpdateResponse,
+    OrderCancellationMessage  # Добавляем этот импорт
+)
 import services
 from datetime import datetime
 import asyncio
