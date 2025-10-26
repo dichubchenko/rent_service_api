@@ -73,25 +73,18 @@ async def create_order(order_request: OrderCreateRequest):
     except (services.ItemNotAvailableError, services.ItemNotInLocationError) as e:
         print(f"❌ Ошибка доступности: {e}")
         
-        # Определяем причину отмены
-        if isinstance(e, services.ItemNotAvailableError):
-            cancel_reason = CancelReason.ITEM_NOT_AVAILABLE
-        else:
-            cancel_reason = CancelReason.ITEM_NOT_IN_LOCATION
-        
         # Отмена во время создания заказа
+        cancel_reason = CancelReason.ITEM_NOT_AVAILABLE if isinstance(e, services.ItemNotAvailableError) else CancelReason.ITEM_NOT_IN_LOCATION
+        
         await services.cancel_order_during_creation(
             order_request.client_id,
             cancel_reason,
             str(e)
         )
         
-        # Если заказ уже создан, обновляем его статус на CANCELLED
+        # Если заказ уже создан, обновляем его статус
         if 'new_order' in locals():
-            cancelled_order = await services.update_order_status(new_order.id, OrderStatus.CANCELLED)
-            # Устанавливаем причину отмены
-            cancelled_order.cancel_reason = cancel_reason
-            cancelled_order.cancel_details = str(e)
+            await services.update_order_status(new_order.id, OrderStatus.CANCELLED)
         
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
