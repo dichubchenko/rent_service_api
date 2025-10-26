@@ -378,3 +378,19 @@ async def cancel_order(client_id: int, order_id: int, cancel_reason: CancelReaso
 
     await send_sms_cancellation(client_id, order_id, cancel_reason)
     #send_sms_cancellation(client_id, cancel_reason, order_id)
+
+
+async def send_to_kafka(message: RentalOrderMessage):
+    # Заглушка для отправки сообщения в Kafka.
+    # В реальности здесь была бы отправка сообщения в Kafka topic
+    print(f"\n🎫 [KAFKA] Отправка сообщения в топик 'rental-orders':")
+    print(f"   Order ID: {message.order_id}")
+    print(f"   Client ID: {message.client_id}") 
+    print(f"   Item ID: {message.item_id}")
+    print(f"   Pickup Point: {message.pickup_point_id}")
+    print(f"   Duration: {message.rental_duration_hours} часов")
+    print(f"   Timestamp: {message.timestamp}")
+
+    # Имитация отправки в Kafka
+    await asyncio.sleep(0.5)
+    print(f"✅ [KAFKA] Сообщение для заказа {message.order_id} успешно отправлено\n")
