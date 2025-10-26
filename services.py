@@ -1,13 +1,14 @@
 import asyncio
 from datetime import datetime, timedelta
-from models import OrderStatus, OrderResponse, OrderCreateRequest, RentalOrderMessage, SMSNotification, CancelReason
+from models import OrderStatus, CancelReason, Order, Client, Item, Ppoint, OrderCreateRequest, OrderResponse, RentalOrderMessage #OrderStatus, OrderResponse, OrderCreateRequest, RentalOrderMessage, SMSNotification, CancelReason
 from typing import Optional, Dict, List
 import json
 
+#генератор id для заказа
 class OrderIdGenerator:
     def __init__(self):
         self.counter = 1000
-    
+
     def generate_id(self) -> int:
         order_id = self.counter
         self.counter += 1
@@ -15,233 +16,365 @@ class OrderIdGenerator:
 
 order_id_generator = OrderIdGenerator()
 
-# Заглушка "таблицы" заказов
-orders_db: List[OrderResponse] = []
+# Заглушка бд заказов
+orders_db: List[Order] = []
 
-# Заглушка "таблицы" вещей
-items_db = {
-    456: {
-        "id": 456, 
-        "name": "Дрель Makita", 
-        "hourly_price": 50, 
-        "is_available": True, 
-        "current_pickup_point_id": 789,
-        "reserved_until": None
-    },
-    457: {
-        "id": 457, 
-        "name": "Шуруповерт Bosch", 
-        "hourly_price": 60, 
-        "is_available": False,
-        "current_pickup_point_id": 789,
-        "reserved_until": datetime(2024, 1, 20, 18, 0, 0)
-    },
-    458: {
-        "id": 458, 
-        "name": "Пауэрбанк Xiaomi", 
-        "hourly_price": 20, 
-        "is_available": True, 
-        "current_pickup_point_id": 123,
-        "reserved_until": None
+# Заглушка бд вещей
+items_db: List[Item] = [
+    Item(
+        id = 456,
+        desc = "Дрель Makita",
+        hourly_price = 50,
+        is_available_now = True,
+        current_pickup_point_id=789,
+        reserved_until = None
+    ),
+    Item(
+        id = 457,
+        desc = "Шуруповерт Bosch",
+        hourly_price = 60,
+        is_available_now = False,
+        current_pickup_point_id = 789,
+        reserved_until = datetime(2025, 12, 20, 18, 0, 0)
+    ),
+    Item(
+        id = 458,
+        desc = "Пауэрбанк Xiaomi",
+        hourly_price = 20,
+        is_available_now = True,
+        current_pickup_point_id = 123,
+        reserved_until = None
+    )
+]
+
+
+
+
+
+# Заглушка бд клиентов
+
+clients_db: List[Client] = [
+    Client(id = 123, name = 'Иван Иванов', phone = '+79161234567', email = 'ivan@mail.ru'),
+    Client(id = 124, name = 'Петр Петров', phone = '+79167654321', email = 'petr@mail.ru')
+]
+
+
+# Заглушка бд постоматов
+pickup_points_db: List[Ppoint] = [
+    Ppoint(id = 789, address = 'ул. Ленина, д. 1', is_active = True),
+    Ppoint(id = 123, address = 'пр. Мира, д. 15', is_active = True)
+]
+
+field_and_type_enum_orders = {
+        'id': int,
+        'client_id': int,
+        'item_id': int,
+        'pickup_point_id': int,
+        'rental_duration_hours': int,
+        'status': OrderStatus,
+        'cancel_reason': Optional[CancelReason],
+        'cancel_details': Optional[str],
+        'created_at': datetime,
+        'updated_at': datetime
     }
-}
-
-# Заглушка "таблицы" клиентов
-clients_db = {
-    123: {
-        "id": 123, 
-        "name": "Иван Иванов", 
-        "phone": "+79161234567", 
-        "email": "ivan@mail.ru"
-    },
-    124: {
-        "id": 124, 
-        "name": "Петр Петров", 
-        "phone": "+79167654321", 
-        "email": "petr@mail.ru"
+field_and_type_enum_clients = {
+        'id': int,
+        'name': str,
+        'phone': str,
+        'email': str
     }
-}
-
-# Заглушка "таблицы" постоматов
-pickup_points_db = {
-    789: {
-        "id": 789, 
-        "address": "ул. Ленина, д. 1", 
-        "working_hours": "круглосуточно",
-        "is_active": True
-    },
-    123: {
-        "id": 123, 
-        "address": "пр. Мира, д. 15", 
-        "working_hours": "08:00-22:00",
-        "is_active": True
+field_and_type_enum_items = {
+        'id': int,
+        'desc': str,
+        'hourly_price': int,
+        'is_available_now': bool,
+        'current_pickup_point_id': int,
+        'reserved_until': Optional[datetime]
     }
-}
+field_and_type_enum_ppoints = {
+        'id': int,
+        'address': str,
+        'is_active': bool
+    }
 
-# --- Исключения ---
+# Ошибки
 
 class DatabaseError(Exception):
+  #дефолтная ошибка проверок в БД
     pass
 
 class ItemNotAvailableError(Exception):
+  #ошибка что вещь уже забронена
+    pass
+
+class ItemNotFoundError(Exception):
+  #ошибка что вещь не найдена
     pass
 
 class ItemNotInLocationError(Exception):
+  #ошибка что вещь не в переданном постомате
     pass
 
-class ClientNotFoundError(Exception):
+class ItemNotFoundInTable(Exception):
+  #ошибка что не нашли объект в базе
     pass
 
-class PickupPointNotFoundError(Exception):
+class TableNotFoundInDB(Exception):
+  #ошибка что не нашли таблицу в базе
     pass
 
-# --- Бизнес-логика ---
+class FieldNotFoundInTableOrTypeIsAnother(Exception):
+  #ошибка что не нашли искомое поле в таблице или оно другого типа
+    pass
+
+
+def find_in_db_by_attribute(table: str, value: int | str | datetime, field: str = 'id'):
+  #используется для поиска в БД по атрибуту
+  if table == 'orders_db':
+    tab = orders_db
+    field_and_type_enum = field_and_type_enum_orders
+  elif table == 'items_db':
+    tab = items_db
+    field_and_type_enum = field_and_type_enum_items
+  elif table == 'clients_db':
+    tab = clients_db
+    field_and_type_enum = field_and_type_enum_clients
+  elif table == 'pickup_points_db':
+    tab = pickup_points_db
+    field_and_type_enum = field_and_type_enum_ppoints
+  else:
+    raise TableNotFoundInDB(f"В БД нет таблицы {table}")
+  
+  if field not in field_and_type_enum:
+      raise FieldNotFoundInTableOrTypeIsAnother(f"В таблице {table} нет поля {field}")
+  elif field_and_type_enum[field] != type(value):
+      raise FieldNotFoundInTableOrTypeIsAnother(f"В таблице {table} поле {field} должно быть типа {field_and_type_enum[field]}")
+  else:
+      pass
+  
+  num = None
+  find_flg = False
+  for i in range(len(tab)):
+    if field == 'id':
+        field_value = tab[i].id
+    elif field == 'client_id':
+        field_value = tab[i].client_id
+    elif field == 'item_id':
+        field_value = tab[i].item_id
+    elif field == 'pickup_point_id':
+        field_value = tab[i].pickup_point_id
+    elif field == 'rental_duration_hours':
+        field_value = tab[i].rental_duration_hours
+    elif field == 'status':
+        field_value = tab[i].status
+    elif field == 'cancel_reason':
+        field_value = tab[i].cancel_reason
+    elif field == 'cancel_details':
+        field_value = tab[i].cancel_details
+    elif field == 'created_at':
+        field_value = tab[i].created_at
+    elif field == 'updated_at':
+        field_value = tab[i].updated_at
+    elif field == 'name':
+        field_value = tab[i].name
+    elif field == 'phone':
+        field_value = tab[i].phone
+    elif field == 'email':
+        field_value = tab[i].email
+    elif field == 'desc':
+        field_value = tab[i].desc
+    elif field == 'hourly_price':
+        field_value = tab[i].hourly_price
+    elif field == 'is_available_now':
+        field_value = tab[i].is_available_now
+    elif field == 'current_pickup_point_id':
+        field_value = tab[i].current_pickup_point_id
+    elif field == 'reserved_until':
+        field_value = tab[i].reserved_until
+    elif field == 'address':
+        field_value = tab[i].address
+    elif field == 'is_active':
+        field_value = tab[i].is_active
+    
+    if field_value == value:
+      num = i
+      find_flg = True
+    else:
+      pass
+  if find_flg == True:
+    return(num)
+  else:
+    raise ItemNotFoundInTable(f"В таблице {table} нет объекта с {field} == {value}")
+
 
 async def check_item_availability(item_id: int, pickup_point_id: int) -> bool:
-    """
-    Проверяет возможность выдачи вещи.
-    """
+#def check_item_availability(item_id: int, pickup_point_id: int) -> bool:
+    #Проверяет возможность выдачи вещи.
+
     print(f"[Проверка доступности] Проверяем вещь {item_id} в постомате {pickup_point_id}")
-    
-    if item_id not in items_db:
-        raise ItemNotAvailableError(f"Вещь с ID {item_id} не найдена")
-    
-    item = items_db[item_id]
-    
-    if item["current_pickup_point_id"] != pickup_point_id:
+
+    #Ищем вещь в item_db
+    item_availible = False
+    try:
+      item_num = find_in_db_by_attribute('items_db', item_id)
+      item_availible = True
+    except ItemNotFoundInTable:
+      raise ItemNotFoundError(f"Вещь с ID {item_id} не найдена")
+
+    if item_availible == False:
+      #если так и не нашли вещь вызываем ошибку
+      raise ItemNotFoundError(f"Вещь с ID {item_id} не найдена")
+
+    else:
+      #если нашли вещь проверяем доступность
+      current_item = items_db[item_num]
+
+      if current_item.current_pickup_point_id != pickup_point_id:
+        #если постомат не тот
+        item_availible = False
         raise ItemNotInLocationError(
-            f"Вещь {item_id} находится в постомате {item['current_pickup_point_id']}, а не в {pickup_point_id}"
+            f"Вещь {item_id} находится в постомате {current_item.current_pickup_point_id}, а не в {pickup_point_id}"
         )
-    
-    if not item["is_available"]:
+
+      elif current_item.is_available_now == False:
+        item_availible = False
+        #проверяем что вещь не забронирована
         raise ItemNotAvailableError(f"Вещь {item_id} уже забронирована")
-    
-    # Проверяем, не истекло ли время бронирования
-    if item["reserved_until"] and item["reserved_until"] < datetime.now():
-        item["is_available"] = True
-        item["reserved_until"] = None
-    
-    return item["is_available"]
+        #ожидаем консистентность данных и невозможность reserved_until <= current_timestamp
+      else:
+        print(f"[Результат проверки доступности] Вещь {item_id} в постомате {pickup_point_id} доступна")
+    return(item_availible)
+
 
 async def reserve_item(item_id: int, order_id: int, rental_hours: int) -> None:
-    """
-    Бронирует вещь в БД.
-    """
+#def reserve_item(item_id: int, order_id: int, rental_hours: int) -> None:
+    #Бронирует вещь в БД
     print(f"[Бронирование] Бронируем вещь {item_id} для заказа {order_id}")
-    
-    if item_id not in items_db:
-        raise DatabaseError(f"Вещь {item_id} не найдена")
-    
-    # Помечаем вещь как недоступную
-    items_db[item_id]["is_available"] = False
-    items_db[item_id]["reserved_until"] = datetime.now() + timedelta(hours=rental_hours + 1)
-    
+    #ожидаем что перед бронированием уже проведена проверка доступности => уже точно item_id в item_db
+
+    item_num = None
+
+    try:
+      item_num = find_in_db_by_attribute('items_db', item_id)
+    except ItemNotFoundInTable:
+      raise ItemNotFoundError(f"Вещь с ID {item_id} не найдена")
+
+    # Изменяем items_db
+    items_db[item_num].is_available_now = False
+    items_db[item_num].reserved_until = datetime.now() + timedelta(hours=rental_hours)
+
     print(f"[Бронирование] Вещь {item_id} забронирована для заказа {order_id}")
 
-async def cancel_order_during_creation(client_id: int, cancel_reason: CancelReason, error_details: str) -> None:
-    """
-    Отменяет заказ во время создания (отправка SMS).
-    """
-    print(f"[Авто-отмена] Отмена во время создания заказа по причине: {cancel_reason}")
-    await send_sms_cancellation(client_id, 0, cancel_reason, error_details)
+async def send_sms_cancellation(client_id: int, reason: CancelReason, order_id: int = None):
+#def send_sms_cancellation(client_id: int, reason: CancelReason, order_id: int = None):
+    #Заглушка для запроса в сервис отправки SMS.
 
-
-async def create_order_in_db(order_data: OrderCreateRequest) -> OrderResponse:
-    """
-    Создает заказ в БД со статусом NEW.
-    """
-    print(f"[Создание заказа] Сохраняем заказ в БД: {order_data}")
-    
-    order_id = order_id_generator.generate_id()
-    now = datetime.now()
-    
-    # Создаем заказ со статусом NEW
-    new_order = OrderResponse(
-        id=order_id,
-        status=OrderStatus.NEW,  # Изначальный статус
-        cancel_reason=None,
-        cancel_details=None,
-        created_at=now,
-        updated_at=now,
-        **order_data.model_dump()
-    )
-    
-    orders_db.append(new_order)
-    print(f"[Создание заказа] Заказ {order_id} создан со статусом NEW")
-    return new_order
-
-# --- Внешние сервисы (заглушки) ---
-
-async def send_to_kafka(message: RentalOrderMessage):
-    """
-    Заглушка для отправки сообщения в Kafka.
-    В реальности здесь был бы вызов kafka-python или аналогичной библиотеки.
-    """
-    print(f"\n🎫 [KAFKA] Отправка сообщения в топик 'rental-orders':")
-    print(f"   Order ID: {message.order_id}")
-    print(f"   Client ID: {message.client_id}") 
-    print(f"   Item ID: {message.item_id}")
-    print(f"   Pickup Point: {message.pickup_point_id}")
-    print(f"   Duration: {message.rental_duration_hours} часов")
-    print(f"   Timestamp: {message.timestamp}")
-    
-    # Имитация отправки в Kafka
-    await asyncio.sleep(0.5)
-    print(f"✅ [KAFKA] Сообщение для заказа {message.order_id} успешно отправлено\n")
-
-async def send_sms_cancellation(client_id: int, order_id: int, reason: CancelReason):
-    """
-    Заглушка для синхронного запроса в сервис отправки SMS.
-    """
-    print(f"\n📱 [SMS SERVICE] Отправка SMS об отмене заказа:")
+    print(f"\n [SMS SERVICE] Отправка SMS об отмене заказа:")
     print(f"   Client ID: {client_id}")
     print(f"   Order ID: {order_id}")
     print(f"   Reason: {reason}")
-    
-    # Получаем данные клиента для SMS
-    client = clients_db.get(client_id)
-    if client:
-        phone_number = client["phone"]
-        
-        # Формируем сообщение в зависимости от причины
-        if reason == CancelReason.ITEM_NOT_AVAILABLE:
-            message = f"Заказ {order_id} отменен. Вещь недоступна для бронирования."
-        elif reason == CancelReason.ITEM_NOT_IN_LOCATION:
-            message = f"Заказ {order_id} отменен. Вещь отсутствует в выбранном месте."
-        else:
-            message = f"Заказ {order_id} отменен."
-        
-        print(f"   To: {phone_number}")
-        print(f"   Message: {message}")
-        
-        # Имитация отправки SMS
-        await asyncio.sleep(0.3)
-        print(f"✅ [SMS SERVICE] SMS для заказа {order_id} отправлено\n")
-    else:
-        print(f"⚠️  [SMS SERVICE] Клиент {client_id} не найден, SMS не отправлено\n")
 
-async def update_order_status(order_id: int, new_status: OrderStatus) -> OrderResponse:
-    """
-    Обновляет статус заказа.
-    """
+    # Получаем данные клиента для SMS
+    client_num = None
+
+    try:
+      client_num = find_in_db_by_attribute('clients_db', client_id)
+      phone_number = clients_db[client_num].phone
+
+      # Формируем сообщение в зависимости от причины
+      if order_id is None:
+          reason = CancelReason.OTHER
+          message = f"Заказ отменен."
+      elif reason == CancelReason.ITEM_NOT_AVAILABLE:
+          message = f"Заказ {order_id} отменен. Вещь недоступна для бронирования."
+      elif reason == CancelReason.ITEM_NOT_FOUND:
+          message = f"Заказ {order_id} отменен. Заказанной вещи не существует."
+      elif reason == CancelReason.ITEM_NOT_IN_LOCATION:
+          message = f"Заказ {order_id} отменен. Вещь отсутствует в выбранном месте."
+      else:
+          message = f"Заказ {order_id} отменен."
+
+      print(f"   To: {phone_number}")
+      print(f"   Message: {message}")
+
+      # Имитация отправки SMS
+      await asyncio.sleep(0.3)
+      #asyncio.sleep(0.3)
+      if order_id is None:
+        print("[SMS SERVICE] SMS для заказа отправлено")
+      else:
+        print(f"[SMS SERVICE] SMS для заказа {order_id} отправлено\n")
+
+    except ItemNotFoundInTable:
+      print(f"[SMS SERVICE] Клиент {client_id} не найден, SMS не отправлено\n")
+      raise ItemNotFoundInTable(f"Клиент с ID {client_id} не найден")
+
+async def create_order_in_db(order_data: OrderCreateRequest) -> OrderResponse:
+#def create_order_in_db(order_data: OrderCreateRequest) -> OrderResponse:
+    #создание заказа
+    print(f"[Создание заказа] Сохраняем заказ в БД: {order_data}")
+    try:
+      order_id = order_id_generator.generate_id()
+      now = datetime.now()
+      
+      # Создаем заказ со статусом NEW
+      new_order = Order(
+          id = order_id,
+          client_id = order_data.client_id,
+          item_id = order_data.item_id,
+          pickup_point_id = order_data.pickup_point_id,
+          rental_duration_hours = order_data.rental_duration_hours,
+          status = OrderStatus.NEW,
+          cancel_reason = None,
+          cancel_details = None,
+          created_at = now,
+          updated_at = now
+      )
+      
+      orders_db.append(new_order)
+      print(f"[Создание заказа] Заказ {order_id} создан")
+    except:
+      raise DatabaseError(f"Заказ не создан")
+    return order_id
+
+async def update_order_status(order_id: int, new_status: OrderStatus) -> Order:
+#def update_order_status(order_id: int, new_status: OrderStatus) -> Order:
+    #Функция обновляет статус у заказа
     print(f"[Обновление статуса] Заказ {order_id} -> {new_status}")
     
     # Ищем заказ
-    order_to_update = None
-    for order in orders_db:
-        if order.id == order_id:
-            order_to_update = order
-            break
+    order_num = None
+    try:
+      order_num = find_in_db_by_attribute('orders_db', order_id)
+    except ItemNotFoundInTable:
+      raise ItemNotFoundError(f"Заказ с ID {order_id} не найден")
     
-    if not order_to_update:
-        raise DatabaseError(f"Заказ с ID {order_id} не найден")
     
-    # Обновляем статус
-    order_to_update.status = new_status
-    order_to_update.updated_at = datetime.now()
+    if order_num:
+      orders_db[order_num].status = new_status
+      orders_db[order_num].updated_at = datetime.now()
     
     print(f"[Обновление статуса] Статус заказа {order_id} обновлен на {new_status}")
-    return order_to_update
+    return orders_db[order_num]
 
+async def cancel_order(client_id: int, order_id: int, cancel_reason: CancelReason, error_details: str = None) -> None:
+#def cancel_order(client_id: int, order_id: int, cancel_reason: CancelReason, error_details: str = None) -> None:
+    #Функция отмены заказа
+    if error_details is None:
+      print(f"Отмена заказа по причине: {cancel_reason}")
+    else:
+      print(f"Отмена заказа по причине: {cancel_reason}. Детали: {error_details}")
+    
+    #обновляем статус заказа
+    order_num = None
+    try:
+      order_num = find_in_db_by_attribute('orders_db', order_id)
+    except ItemNotFoundInTable:
+      raise ItemNotFoundError(f"Заказ с ID {order_id} не найден")
 
+    orders_db[order_num].status = OrderStatus.CANCELLED
+    orders_db[order_num].cancel_reason = cancel_reason
+    orders_db[order_num].cancel_details = error_details
 
+    await send_sms_cancellation(client_id, order_id, cancel_reason)
+    #send_sms_cancellation(client_id, cancel_reason, order_id)
