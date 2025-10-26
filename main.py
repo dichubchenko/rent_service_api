@@ -55,7 +55,7 @@ async def create_order(order_request: OrderCreateRequest):
         )
         
         # 4. Обновляем статус заказа на AWAITING_PAYMENT
-        updated_order = await services.update_order_status(new_order.id, OrderStatus.AWAITING_PAYMENT)
+        updated_order = await services.update_order_status(new_order, OrderStatus.AWAITING_PAYMENT)
         #updated_order = update_order_status(new_order, OrderStatus.AWAITING_PAYMENT)
         print(f"Статус заказа {new_order} обновлен на AWAITING_PAYMENT")
 
@@ -94,7 +94,7 @@ async def create_order(order_request: OrderCreateRequest):
         elif isinstance(e, services.ItemNotAvailableError):
         #elif isinstance(e, ItemNotAvailableError):
             cancel_reason = CancelReason.ITEM_NOT_AVAILABLE
-        elif isinstance(e, service.ItemNotAvailableError):
+        elif isinstance(e, services.ItemNotAvailableError):
         #elif isinstance(e, ItemNotInLocationError):
             cancel_reason = CancelReason.ITEM_NOT_IN_LOCATION
         else:
