@@ -4,18 +4,6 @@ from models import OrderStatus, CancelReason, Order, Client, Item, Ppoint, Order
 from typing import Optional, Dict, List
 import json
 
-#генератор id для заказа
-class OrderIdGenerator:
-    def __init__(self):
-        self.counter = 1000
-
-    def generate_id(self) -> int:
-        order_id = self.counter
-        self.counter += 1
-        return order_id
-
-order_id_generator = OrderIdGenerator()
-
 # Заглушка бд заказов
 orders_db: List[Order] = []
 
@@ -127,6 +115,17 @@ class FieldNotFoundInTableOrTypeIsAnother(Exception):
   #ошибка что не нашли искомое поле в таблице или оно другого типа
     pass
 
+import time
+import hashlib
+#генерирует id нового item
+def generate_six_digit_id(salt: str) -> int:
+    # Генерирует 6-значный целочисленный ID на основе времени и соли.
+    timestamp = str(time.time_ns()).encode()
+    combined = timestamp + salt.encode()
+    hash_bytes = hashlib.sha256(combined).digest()[:4]
+    full_number = int.from_bytes(hash_bytes, byteorder='big')
+    return 100000 + (full_number % 900000)
+    
 
 def find_in_db_by_attribute(table: str, value: int | str | datetime, field: str = 'id'):
   #используется для поиска в БД по атрибуту
@@ -314,7 +313,7 @@ async def create_order_in_db(order_data: OrderCreateRequest) -> OrderResponse:
     #создание заказа
     print(f"[Создание заказа] Сохраняем заказ в БД: {order_data}")
     try:
-      order_id = order_id_generator.generate_id()
+      order_id = generate_six_digit_id('orders_db')
       now = datetime.now()
       
       # Создаем заказ со статусом NEW
@@ -394,3 +393,15 @@ async def send_to_kafka(message: RentalOrderMessage):
     # Имитация отправки в Kafka
     await asyncio.sleep(0.5)
     print(f"✅ [KAFKA] Сообщение для заказа {message.order_id} успешно отправлено\n")
+
+
+#### для new_items
+
+async def add_item(item_data: Item):
+    #добавляет новый item в БД
+    items_db.append(item_data)
+
+
+class PPointNotFound(Exception):
+  #ошибка что ppoint не найден
+    pass
