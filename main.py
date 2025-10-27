@@ -243,7 +243,7 @@ async def add_new_items(request_data: ItemCreateRequest):
 
 
 @app.post("/api/new_clients",
-          response_model=Item,
+          response_model=Client,
           status_code=status.HTTP_201_CREATED,
           summary="Создать нового клиента в базе",
           tags=["Clients"])
