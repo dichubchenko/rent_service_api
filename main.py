@@ -132,12 +132,12 @@ async def root():
 @app.get("/api/get_items")
 async def get_items():
     #Возвращает все items_db
-    return {services.items_db}
+    return services.items_db
 
 @app.get("/api/get_orders")
 async def get_orders():
     #Возвращает все orders_db
-    return {services.orders_db}
+    return services.orders_db
 
 if __name__ == "__main__":
     import uvicorn
@@ -239,7 +239,7 @@ async def add_new_items(request_data: ItemCreateRequest):
             detail="Internal server error."
         )
 
-    return(item_obj)
+    return item_obj
 
 
 @app.post("/api/new_clients",
@@ -326,4 +326,4 @@ async def create_new_client(request_data: ClientCreateRequest):
             detail="Internal server error."
         )
 
-    return(client_obj)
+    return client_obj
