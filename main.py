@@ -94,7 +94,7 @@ async def create_order(order_request: OrderCreateRequest):
         elif isinstance(e, services.ItemNotAvailableError):
         #elif isinstance(e, ItemNotAvailableError):
             cancel_reason = CancelReason.ITEM_NOT_AVAILABLE
-        elif isinstance(e, services.ItemNotAvailableError):
+        elif isinstance(e, services.ItemNotInLocationError):
         #elif isinstance(e, ItemNotInLocationError):
             cancel_reason = CancelReason.ITEM_NOT_IN_LOCATION
         else:
