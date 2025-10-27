@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException, status
-from models import OrderStatus, CancelReason, Order, Client, Item, Ppoint, OrderCreateRequest, OrderResponse, RentalOrderMessage, ItemCreateRequest
+from models import OrderStatus, CancelReason, Order, Client, Item, Ppoint, OrderCreateRequest, OrderResponse, RentalOrderMessage, ItemCreateRequest, ClientCreateRequest
 import services
 from datetime import datetime
 import asyncio
@@ -240,3 +240,83 @@ async def add_new_items(request_data: ItemCreateRequest):
         )
 
     return(item_obj)
+
+
+@app.post("/api/new_clients",
+          response_model=Item,
+          status_code=status.HTTP_201_CREATED,
+          summary="Создать нового клиента в базе",
+          tags=["Clients"])
+
+
+async def create_new_client(request_data: ClientCreateRequest):
+    # Логика:
+    # 1. Генерируем id
+    # 2. Проверяем наличие такого id в базе
+    # 2.1. Если id уже есть в базе генерируем по новой
+    # 3. Проверяем основные бизнес условия:
+    #   name не пустой
+    #   phone не пустой
+    #   email не пустой
+    #   phone в базе должны быть уникальны
+    #   email в базе должны быть уникальны  
+    # 5. Регистрируем в базе
+
+
+    # Генерируем и проверяем id в базе
+    while True:
+        try:
+          client_id = generate_six_digit_id('clients_db')
+          num_conflict = find_in_db_by_attribute('clients_db', client_id)
+        except(ItemNotFoundInTable):
+          break
+
+    # Проверяем бизнес условия
+
+    if request_data.name == '' or request_data.phone == '' or request_data.email == '':
+      #raise(Exception(f"Нельзя зарегистрировать client без полей name, email, phone"))
+
+      raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Нельзя зарегистрировать client без полей name, email, phone"
+        )
+    else:
+      pass
+      
+    num_conflict = -1
+    try:
+      num_conflict = find_in_db_by_attribute('clients_db', request_data.phone, 'phone')
+    except(ItemNotFoundInTable):
+      pass
+
+    if num_conflict != -1:
+      #raise(Exception(f"В базе уже есть клиент с phone {request_data.phone}"))
+
+      raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"В базе уже есть клиент с phone {request_data.phone}"
+        )
+
+    try:
+      num_conflict = find_in_db_by_attribute('clients_db', request_data.email, 'email')
+    except(ItemNotFoundInTable):
+      pass
+    
+    if num_conflict != -1:
+      #raise(Exception(f"В базе уже есть клиент с email {request_data.email}"))
+
+      raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"В базе уже есть клиент с email {request_data.email}"
+        )
+
+    client_obj = Client(
+        id = client_id,
+        name = request_data.name,
+        phone = request_data.phone,
+        email = request_data.email
+        )
+    
+    await add_client(client_obj)
+
+    return(client_obj)

@@ -1,6 +1,6 @@
 import asyncio
 from datetime import datetime, timedelta
-from models import OrderStatus, CancelReason, Order, Client, Item, Ppoint, OrderCreateRequest, OrderResponse, RentalOrderMessage, ItemCreateRequest
+from models import OrderStatus, CancelReason, Order, Client, Item, Ppoint, OrderCreateRequest, OrderResponse, RentalOrderMessage, ItemCreateRequest, ClientCreateRequest
 from typing import Optional, Dict, List
 import json
 
@@ -405,3 +405,7 @@ async def add_item(item_data: Item):
 class PPointNotFound(Exception):
   #ошибка что ppoint не найден
     pass
+
+async def add_client(client_data: Client):
+    #добавляет новый client в БД
+    clients_db.append(client_data)

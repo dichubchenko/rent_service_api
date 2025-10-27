@@ -132,3 +132,19 @@ class ItemCreateRequest(BaseModel):
             }
         }
     )
+
+class ClientCreateRequest(BaseModel):
+    #запрос на создание client
+    name: str
+    phone: str
+    email: str
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "name": "Иван",
+                "phone": "+79999999999",
+                "email": "ivan@mail.ru"
+            }
+        }
+    )
