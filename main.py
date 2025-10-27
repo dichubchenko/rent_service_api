@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException, status
-from models import OrderStatus, CancelReason, Order, Client, Item, Ppoint, OrderCreateRequest, OrderResponse, RentalOrderMessage, ItemCreateRequest, ClientCreateRequest, ClientRequest
+from models import OrderStatus, CancelReason, Order, Client, Item, Ppoint, OrderCreateRequest, OrderResponse, RentalOrderMessage, ItemCreateRequest, ClientCreateRequest
 import services
 from datetime import datetime
 import asyncio
@@ -129,14 +129,14 @@ async def root():
         "status": "running"
     }
 
-@app.get("/api/debug/items")
+@app.get("/api/get_items")
 async def debug_items():
-    """Эндпоинт для отладки - показывает текущее состояние вещей"""
+    #Возвращает все items_db
     return {"items": services.items_db}
 
 @app.get("/api/debug/orders")
 async def debug_orders():
-    """Эндпоинт для отладки - показывает созданные заказы"""
+    #Возвращает все orders_db
     return {"orders": services.orders_db}
 
 if __name__ == "__main__":
@@ -325,35 +325,5 @@ async def create_new_client(request_data: ClientCreateRequest):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal server error."
         )
-
-    return(client_obj)
-
-
-@app.get("/api/get_clients",
-          response_model=Client,
-          status_code=status.HTTP_201_CREATED,
-          summary="Найти клиента в базе",
-          tags=["Clients"])
-
-async def get_client(request_data: ClientRequest):
-    # Логика:
-    # 1. Ищем в БД по id клиента
-    # 2. Если не находим отдаем ошибку
-    # 3. Если находим отдаем инфу по клиенту
-
-
-    try:
-      client_id = request_data.id
-      num_conflict = services.find_in_db_by_attribute('clients_db', client_id)
-
-    except(services.ItemNotFoundInTable):
-      #raise(ItemNotFoundInTable(f"Клиент с id {client_id} не найден"))
-
-      raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Клиент с id {client_id} не найден"
-        )
-          
-    client_obj = services.clients_db[num_conflict]
 
     return(client_obj)
