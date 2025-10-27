@@ -116,3 +116,19 @@ class RentalOrderMessage(BaseModel):
     rental_duration_hours: int
     status: OrderStatus
     timestamp: datetime
+
+class ItemCreateRequest(BaseModel):
+    #запрос на создание item
+    desc: str
+    hourly_price: int
+    current_pickup_point_id: int
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "desc": "Вещь",
+                "hourly_price": 40,
+                "current_pickup_point_id": 789,
+            }
+        }
+    )
