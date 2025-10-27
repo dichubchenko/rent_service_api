@@ -179,15 +179,15 @@ async def add_new_items(request_data: ItemCreateRequest):
     # Генерируем и проверяем id в базе
     while True:
         try:
-          item_id = generate_six_digit_id('items_db')
-          num_conflict = find_in_db_by_attribute('items_db', item_id)
-        except(ItemNotFoundInTable):
+          item_id = services.generate_six_digit_id('items_db')
+          num_conflict = services.find_in_db_by_attribute('items_db', item_id)
+        except(services.ItemNotFoundInTable):
           break
     
     # Проверяем current_pickup_point_id в базе
     try:
-      num_conflict = find_in_db_by_attribute('pickup_points_db', request_data.current_pickup_point_id)
-    except(ItemNotFoundInTable):
+      num_conflict = services.find_in_db_by_attribute('pickup_points_db', request_data.current_pickup_point_id)
+    except(services.ItemNotFoundInTable):
       #raise(PPointNotFound(f"Не существует pickup_point с id {request_data.current_pickup_point_id}"))
 
       raise HTTPException(
@@ -266,9 +266,9 @@ async def create_new_client(request_data: ClientCreateRequest):
     # Генерируем и проверяем id в базе
     while True:
         try:
-          client_id = generate_six_digit_id('clients_db')
-          num_conflict = find_in_db_by_attribute('clients_db', client_id)
-        except(ItemNotFoundInTable):
+          client_id = services.generate_six_digit_id('clients_db')
+          num_conflict = services.find_in_db_by_attribute('clients_db', client_id)
+        except(services.ItemNotFoundInTable):
           break
 
     # Проверяем бизнес условия
@@ -285,8 +285,8 @@ async def create_new_client(request_data: ClientCreateRequest):
       
     num_conflict = -1
     try:
-      num_conflict = find_in_db_by_attribute('clients_db', request_data.phone, 'phone')
-    except(ItemNotFoundInTable):
+      num_conflict = services.find_in_db_by_attribute('clients_db', request_data.phone, 'phone')
+    except(services.ItemNotFoundInTable):
       pass
 
     if num_conflict != -1:
@@ -298,8 +298,8 @@ async def create_new_client(request_data: ClientCreateRequest):
         )
 
     try:
-      num_conflict = find_in_db_by_attribute('clients_db', request_data.email, 'email')
-    except(ItemNotFoundInTable):
+      num_conflict = services.find_in_db_by_attribute('clients_db', request_data.email, 'email')
+    except(services.ItemNotFoundInTable):
       pass
     
     if num_conflict != -1:
@@ -317,6 +317,13 @@ async def create_new_client(request_data: ClientCreateRequest):
         email = request_data.email
         )
     
-    await add_client(client_obj)
+    try:
+        await add_client(client_obj)
+    except Exception as e:
+        print(f"Непредвиденная ошибка: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error."
+        )
 
     return(client_obj)
