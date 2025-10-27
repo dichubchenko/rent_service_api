@@ -130,14 +130,14 @@ async def root():
     }
 
 @app.get("/api/get_items")
-async def debug_items():
+async def get_items():
     #Возвращает все items_db
-    return {"items": services.items_db}
+    return {services.items_db}
 
-@app.get("/api/debug/orders")
-async def debug_orders():
+@app.get("/api/get_orders")
+async def get_orders():
     #Возвращает все orders_db
-    return {"orders": services.orders_db}
+    return {services.orders_db}
 
 if __name__ == "__main__":
     import uvicorn
