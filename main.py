@@ -186,7 +186,7 @@ async def add_new_items(request_data: ItemCreateRequest):
     
     # Проверяем current_pickup_point_id в базе
     try:
-      num_conflict = services..find_in_db_by_attribute('pickup_points_db', request_data.current_pickup_point_id)
+      num_conflict = services.find_in_db_by_attribute('pickup_points_db', request_data.current_pickup_point_id)
     except(services.ItemNotFoundInTable):
       #raise(PPointNotFound(f"Не существует pickup_point с id {request_data.current_pickup_point_id}"))
 
@@ -285,7 +285,7 @@ async def create_new_client(request_data: ClientCreateRequest):
       
     num_conflict = -1
     try:
-      num_conflict = find_in_db_by_attribute('clients_db', request_data.phone, 'phone')
+      num_conflict = services.find_in_db_by_attribute('clients_db', request_data.phone, 'phone')
     except(services.ItemNotFoundInTable):
       pass
 
@@ -298,7 +298,7 @@ async def create_new_client(request_data: ClientCreateRequest):
         )
 
     try:
-      num_conflict = find_in_db_by_attribute('clients_db', request_data.email, 'email')
+      num_conflict = services.find_in_db_by_attribute('clients_db', request_data.email, 'email')
     except(services.ItemNotFoundInTable):
       pass
     
