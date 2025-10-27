@@ -148,3 +148,15 @@ class ClientCreateRequest(BaseModel):
             }
         }
     )
+
+class ClientRequest(BaseModel):
+    #запрос на получение всей информации по клиенту
+    id: int
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "id": 123
+            }
+        }
+    )
