@@ -153,5 +153,90 @@ async def reset_database():
     import importlib
     importlib.reload(services)  # Перезагружаем модуль services
     
-    print("🔄 База данных сброшена к начальному состоянию")
+    print("База данных сброшена к начальному состоянию")
     return {"message": "Database reset successfully", "orders_count": len(services.orders_db)}
+
+
+
+@app.post("/api/new_items",
+          response_model=Item,
+          status_code=status.HTTP_201_CREATED,
+          summary="Создать новую вещь в базе",
+          tags=["Items"])
+
+async def add_new_items(request_data: ItemCreateRequest):
+    # Логика:
+    # 1. Генерируем id
+    # 2. Проверяем наличие такого id в базе
+    # 2.1. Если id уже есть в базе генерируем по новой
+    # 3. Проверяем наличие current_pickup_point_id в базе
+    # 4. Проверяем основные бизнес условия:
+    #   desc не пустой
+    #   hourly_price > 0
+    # 5. Регистрируем в базе
+
+
+    # Генерируем и проверяем id в базе
+    while True:
+        try:
+          item_id = generate_six_digit_id('items_db')
+          num_conflict = find_in_db_by_attribute('items_db', item_id)
+        except(ItemNotFoundInTable):
+          break
+    
+    # Проверяем current_pickup_point_id в базе
+    try:
+      num_conflict = find_in_db_by_attribute('pickup_points_db', request_data.current_pickup_point_id)
+    except(ItemNotFoundInTable):
+      #raise(PPointNotFound(f"Не существует pickup_point с id {request_data.current_pickup_point_id}"))
+
+      raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Не существует pickup_point с id {request_data.current_pickup_point_id}"
+        )
+
+    # Проверяем бизнес условия
+
+    if request_data.desc == '':
+      #raise(Exception(f"Нельзя зарегистрировать item с пустым desc"))
+
+      raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Нельзя зарегистрировать item с пустым desc"
+        )
+
+
+    elif request_data.hourly_price <= 0:
+      #raise(Exception(f"Нельзя зарегистрировать item с hourly_price <= 0"))
+
+      raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Нельзя зарегистрировать item с hourly_price <= 0"
+        )
+      
+    else:
+      pass
+
+    
+
+
+    item_obj = Item(
+        id = item_id,
+        desc = request_data.desc,
+        hourly_price = request_data.hourly_price,
+        is_available_now = True,
+        current_pickup_point_id = request_data.current_pickup_point_id,
+        reserved_until = None
+        )
+    
+    try:
+        await add_item(item_obj)
+
+    except Exception as e:
+        print(f"Непредвиденная ошибка: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error."
+        )
+
+    return(item_obj)
