@@ -230,7 +230,7 @@ async def add_new_items(request_data: ItemCreateRequest):
         )
     
     try:
-        await add_item(item_obj)
+        await services.add_item(item_obj)
 
     except Exception as e:
         print(f"Непредвиденная ошибка: {e}")
@@ -318,7 +318,7 @@ async def create_new_client(request_data: ClientCreateRequest):
         )
     
     try:
-        await add_client(client_obj)
+        await services.add_client(client_obj)
     except Exception as e:
         print(f"Непредвиденная ошибка: {e}")
         raise HTTPException(
